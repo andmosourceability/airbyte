@@ -5,6 +5,8 @@
 package io.airbyte.server.apis;
 
 import io.airbyte.analytics.TrackingClient;
+import io.airbyte.api.model.AirbyteCatalog;
+import io.airbyte.api.model.AirbyteStreamAndConfiguration;
 import io.airbyte.api.model.CheckConnectionRead;
 import io.airbyte.api.model.CheckOperationRead;
 import io.airbyte.api.model.CompleteDestinationOAuthRequest;
@@ -126,10 +128,16 @@ import java.io.File;
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @javax.ws.rs.Path("/v1")
 public class ConfigurationApi implements io.airbyte.api.V1Api {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(ConfigurationApi.class);
 
   private final WorkspacesHandler workspacesHandler;
   private final SourceDefinitionsHandler sourceDefinitionsHandler;
@@ -560,6 +568,43 @@ public class ConfigurationApi implements io.airbyte.api.V1Api {
 
   @Override
   public JobInfoRead syncConnection(final ConnectionIdRequestBody connectionIdRequestBody) {
+    final ConnectionRead connectionRead = execute(() -> connectionsHandler.getConnection(connectionIdRequestBody.getConnectionId()));
+    SourceIdRequestBody sourceIdRequestBody = new SourceIdRequestBody().sourceId(connectionRead.getSourceId());
+    final SourceDiscoverSchemaRead newSchema = execute(() -> schedulerHandler.discoverSchemaForSourceFromSourceId(sourceIdRequestBody));
+    LOGGER.info("GRAMBLES");
+    LOGGER.info("connectionRead: {}", connectionRead);
+    LOGGER.info("sourceIdRequestBody: {}", sourceIdRequestBody);
+    LOGGER.info("newSchema: {}", newSchema);
+    List<AirbyteStreamAndConfiguration> oldStreams = connectionRead.getSyncCatalog().getStreams();
+    List<AirbyteStreamAndConfiguration> newStreams = newSchema.getCatalog().getStreams();
+    for (int i = 0; i < oldStreams.size(); i++) {
+      for (int j = 0; j < newStreams.size(); j++) {
+        LOGGER.info("COMPARE");
+        LOGGER.info("OLD: {}", oldStreams.get(i).getStream().getName());
+        LOGGER.info("NEW: {}", newStreams.get(j).getStream().getName());
+        if (Objects.equals(oldStreams.get(i).getStream().getName(), newStreams.get(j).getStream().getName())) {
+          LOGGER.info("Name: {}", newStreams.get(j).getStream().getName());
+          oldStreams.get(i).setStream(newStreams.get(j).getStream());
+          connectionRead.getSyncCatalog().getStreams().get(i).setStream(newStreams.get(j).getStream());
+        }
+      }
+    }
+    LOGGER.info("oldStreams: {}", oldStreams);
+    AirbyteCatalog syncCatalog = new AirbyteCatalog();
+    syncCatalog.setStreams(oldStreams);
+    LOGGER.info("syncCatalog: {}", syncCatalog);
+    LOGGER.info("connectionReadAgain: {}", connectionRead);
+    ConnectionUpdate connectionUpdate = new ConnectionUpdate();
+    connectionUpdate.setConnectionId(connectionIdRequestBody.getConnectionId());
+    connectionUpdate.setNamespaceDefinition(connectionRead.getNamespaceDefinition());
+    connectionUpdate.setNamespaceFormat(connectionRead.getNamespaceFormat());
+    connectionUpdate.setPrefix(connectionRead.getPrefix());
+    connectionUpdate.setOperationIds(connectionRead.getOperationIds());
+    connectionUpdate.setSyncCatalog(connectionRead.getSyncCatalog());
+    connectionUpdate.setSchedule(connectionRead.getSchedule());
+    connectionUpdate.setStatus(connectionRead.getStatus());
+    connectionUpdate.setResourceRequirements(connectionRead.getResourceRequirements());
+    execute(() -> connectionsHandler.updateConnection(connectionUpdate));
     if (featureFlags.usesNewScheduler()) {
       return execute(() -> schedulerHandler.createManualRun(connectionIdRequestBody.getConnectionId()));
     }
