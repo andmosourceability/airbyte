@@ -5,7 +5,6 @@
 package io.airbyte.server.apis;
 
 import io.airbyte.analytics.TrackingClient;
-import io.airbyte.api.model.AirbyteCatalog;
 import io.airbyte.api.model.AirbyteStreamAndConfiguration;
 import io.airbyte.api.model.CheckConnectionRead;
 import io.airbyte.api.model.CheckOperationRead;
@@ -571,29 +570,15 @@ public class ConfigurationApi implements io.airbyte.api.V1Api {
     final ConnectionRead connectionRead = execute(() -> connectionsHandler.getConnection(connectionIdRequestBody.getConnectionId()));
     SourceIdRequestBody sourceIdRequestBody = new SourceIdRequestBody().sourceId(connectionRead.getSourceId());
     final SourceDiscoverSchemaRead newSchema = execute(() -> schedulerHandler.discoverSchemaForSourceFromSourceId(sourceIdRequestBody));
-    LOGGER.info("GRAMBLES");
-    LOGGER.info("connectionRead: {}", connectionRead);
-    LOGGER.info("sourceIdRequestBody: {}", sourceIdRequestBody);
-    LOGGER.info("newSchema: {}", newSchema);
     List<AirbyteStreamAndConfiguration> oldStreams = connectionRead.getSyncCatalog().getStreams();
     List<AirbyteStreamAndConfiguration> newStreams = newSchema.getCatalog().getStreams();
     for (int i = 0; i < oldStreams.size(); i++) {
       for (int j = 0; j < newStreams.size(); j++) {
-        LOGGER.info("COMPARE");
-        LOGGER.info("OLD: {}", oldStreams.get(i).getStream().getName());
-        LOGGER.info("NEW: {}", newStreams.get(j).getStream().getName());
         if (Objects.equals(oldStreams.get(i).getStream().getName(), newStreams.get(j).getStream().getName())) {
-          LOGGER.info("Name: {}", newStreams.get(j).getStream().getName());
-          oldStreams.get(i).setStream(newStreams.get(j).getStream());
           connectionRead.getSyncCatalog().getStreams().get(i).setStream(newStreams.get(j).getStream());
         }
       }
     }
-    LOGGER.info("oldStreams: {}", oldStreams);
-    AirbyteCatalog syncCatalog = new AirbyteCatalog();
-    syncCatalog.setStreams(oldStreams);
-    LOGGER.info("syncCatalog: {}", syncCatalog);
-    LOGGER.info("connectionReadAgain: {}", connectionRead);
     ConnectionUpdate connectionUpdate = new ConnectionUpdate();
     connectionUpdate.setConnectionId(connectionIdRequestBody.getConnectionId());
     connectionUpdate.setNamespaceDefinition(connectionRead.getNamespaceDefinition());
